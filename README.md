@@ -5,7 +5,7 @@
 - 🔑 **自助上传访问密钥**：前端表单录入各账户的 Access Key / Secret /（可选）Session Token 与区域，可选择保存到本机浏览器（localStorage）或仅本次会话使用，随时可单个删除或一键清除。
 - 📊 **可自定义时间范围**：顶栏下拉切换**相对**预设（最近 1/6/24 小时、本月、上月）或**自定义绝对时间**（datetime 选择器）；CloudWatch/成本查询均按所选范围执行，成本粒度自动适配（短窗口 HOURLY、长窗口 DAILY）。核心图表 **Token Counts by Model（各模型输入/输出 Token）**，另含调用次数、平均延迟、各账户成本占比。
 - 💰 **总成本**：通过 Cost Explorer `GetCostAndUsage` 统计本窗口内 Amazon Bedrock 费用。
-- 📏 **服务配额**：通过 Service Quotas `GetServiceQuota` 查询配额码 **L-D06938E7**（Bedrock，按账户/区域显示当前值）。
+- 📏 **服务配额**：通过 Service Quotas `GetServiceQuota` 查询配额码 **L-D06938E7**（Bedrock，按账户/区域显示当前值）。顺带一个隐藏用法——**可间接判断账户是否被封/受限**：配额查询能正常返回数值，说明密钥有效且账户状态正常；若报 `AccessDenied`、账户级错误或持续异常，往往意味着密钥失效、账户被停用（如欠费封停）或被组织策略限制。对管理多个客户账户的团队来说，配额表就是一张现成的「账户健康探针」面板，悬停报错单元格可查看具体原因。
 - 🕒 **本地时区**：自动识别浏览器时区并显示数据窗口的本地时间。
 - 🔄 **15 分钟自动刷新**：内置定时器，也支持手动刷新与账户/模型筛选。
 - 🚀 **部署形态（推荐：Lambda + API Gateway HTTP API）**：**1 个 Lambda + 1 个 HTTP API（$default 阶段）**，没有 S3 静态站、没有 API Key，免费额度内**约等于 $0/月**。Lambda Function URL 在部分组织被 SCP 禁止，本方案使用 API Gateway 端点规避。

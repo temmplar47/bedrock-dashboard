@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>一个 Lambda 搞定多账户 Bedrock 监控 · One Lambda to Watch Them All</title>
+</head>
+<body style="margin:0; padding:0; background:#f2f3f5;">
+<div style="max-width:677px; margin:0 auto; padding:24px 18px 48px; font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif; color:#333; line-height:1.75; font-size:15px; background:#ffffff;">
+
+  <!-- ===== 封面标题 ===== -->
+  <div style="background:linear-gradient(135deg,#232f3e 0%,#37475a 100%); border-radius:12px; padding:34px 26px; margin-bottom:28px;">
+    <div style="color:#ff9900; font-size:13px; letter-spacing:2px; margin-bottom:10px;">AWS · SERVERLESS · COST VISIBILITY</div>
+    <h1 style="color:#ffffff; font-size:23px; line-height:1.45; margin:0 0 12px;">一个 Lambda 搞定多账户 Bedrock 监控：成本、Token、延迟、配额——还能看出账户是否被封</h1>
+    <div style="color:#c8d1db; font-size:13px; line-height:1.6;">One Lambda to Watch Them All: A Near-Zero-Cost Multi-Account Amazon Bedrock Dashboard — Cost, Tokens, Latency, Quotas, and Even Account Health.</div>
+  </div>
+
+  <!-- ===== 导语 ===== -->
+  <p>如果你在管多个 AWS 账户上的 Claude / Bedrock 业务，大概率遇到过这几个问题：切控制台切到手软、成本和调用量对不上账、Marketplace 订阅的 Claude 费用在 Cost Explorer 里「隐身」、还有——某个客户账户悄悄被停用了，你是最后一个知道的。</p>
+  <p>这篇文章介绍我们开源的一套极简监控面板：<strong>1 个 Lambda + 1 个 API Gateway HTTP API，月成本约等于 0</strong>，却能把多账户的模型 Token 用量、调用次数、延迟、成本、服务配额一屏打尽。文末还附赠一个隐藏技巧：用配额查询间接探测「账户是否被封」。</p>
+
+  <div style="background:#f7f9fb; border-left:4px solid #0366d6; padding:14px 16px; margin:20px 0; color:#5a6572; font-size:13.5px; line-height:1.7;">
+    <span style="display:inline-block; background:#0366d6; color:#fff; font-size:11px; padding:1px 8px; border-radius:10px; margin-right:8px;">EN</span>If you run Claude / Bedrock workloads across multiple AWS accounts, you have probably suffered from console-hopping, costs that never reconcile with usage, Claude Marketplace charges that "hide" in Cost Explorer — and finding out a customer's account got suspended long after the fact. This post walks through our open-source, minimal dashboard: <strong>one Lambda + one API Gateway HTTP API, roughly $0/month</strong>, covering tokens, invocations, latency, cost and service quotas across accounts — plus a hidden trick: using quota queries as an account-health probe.
+  </div>
+
+  <!-- ===== 01 痛点 ===== -->
+  <h2 style="font-size:18px; border-left:5px solid #ff9900; padding-left:12px; margin:36px 0 14px;">01 为什么需要它 · Why We Built It</h2>
+  <p>市面上的方案要么太重（Grafana + 采集器 + 数据库），要么太贵，要么只看单个账户。我们的需求很朴素：</p>
+  <ul style="padding-left:22px; margin:10px 0;">
+    <li><strong>多云账户</strong>：多个客户账户的 Bedrock 用量要一起看；</li>
+    <li><strong>零运维</strong>：不想维护服务器、数据库、采集 Agent；</li>
+    <li><strong>成本可见</strong>：On-Demand 和 Marketplace 订阅的 Claude 费用都要算进来；</li>
+    <li><strong>凭证不落服务端</strong>：客户密钥绝不能存在我们的基础设施里。</li>
+  </ul>
+
+  <div style="background:#f7f9fb; border-left:4px solid #0366d6; padding:14px 16px; margin:20px 0; color:#5a6572; font-size:13.5px; line-height:1.7;">
+    <span style="display:inline-block; background:#0366d6; color:#fff; font-size:11px; padding:1px 8px; border-radius:10px; margin-right:8px;">EN</span>Existing options were either heavy (Grafana + collectors + a database), costly, or single-account only. Our requirements were simple: multi-account visibility, zero maintenance, cost coverage for both on-demand and Marketplace subscriptions, and <strong>zero server-side credential storage</strong>.
+  </div>
+
+  <!-- ===== 02 架构 ===== -->
+  <h2 style="font-size:18px; border-left:5px solid #ff9900; padding-left:12px; margin:36px 0 14px;">02 极简架构 · The Minimal Architecture</h2>
+  <p>整套系统只有 <strong>4 个 CloudFormation 资源</strong>：1 个 IAM Role、1 个 Lambda、1 个 Lambda Permission、1 个 API Gateway HTTP API。前端页面在构建时直接内联进 Lambda 代码，页面与查询 API <strong>同源</strong>，打开即用、零配置。</p>
+
+  <!-- 架构图（纯 div，兼容公众号编辑器） -->
+  <div style="background:#232f3e; border-radius:12px; padding:22px 18px; margin:18px 0;">
+    <div style="text-align:center; color:#8fa3b8; font-size:12px; letter-spacing:1px; margin-bottom:14px;">ARCHITECTURE · 架构一图流</div>
+    <div style="background:#ffffff; border-radius:8px; padding:12px 14px; text-align:center; font-size:13.5px;">
+      🖥️ 浏览器（密钥仅存于本机）<br><span style="color:#8a94a6; font-size:12px;">Browser — credentials live locally only</span>
+    </div>
+    <div style="text-align:center; color:#ff9900; font-size:15px; margin:4px 0;">⬇ GET 页面 / POST 查询</div>
+    <div style="background:#ffffff; border-radius:8px; padding:12px 14px; text-align:center; font-size:13.5px;">
+      API Gateway HTTP API（$default）<br><span style="color:#8a94a6; font-size:12px;">No API key, no stage config</span>
+    </div>
+    <div style="text-align:center; color:#ff9900; font-size:15px; margin:4px 0;">⬇</div>
+    <div style="background:#ffffff; border-radius:8px; padding:12px 14px; text-align:center; font-size:13.5px;">
+      ⚡ Lambda × 1（页面 + 查询代理）<br><span style="color:#8a94a6; font-size:12px;">Serves the page AND proxies queries</span>
+    </div>
+    <div style="text-align:center; color:#ff9900; font-size:15px; margin:4px 0;">⬇ 用请求体里的调用方密钥</div>
+    <div style="display:flex; gap:8px; margin-top:2px;">
+      <div style="flex:1; background:#37475a; color:#e8edf2; border-radius:8px; padding:10px 6px; text-align:center; font-size:11.5px;">CloudWatch<br>GetMetricData<br><span style="color:#ff9900;">Token / 次数 / 延迟</span></div>
+      <div style="flex:1; background:#37475a; color:#e8edf2; border-radius:8px; padding:10px 6px; text-align:center; font-size:11.5px;">Cost Explorer<br>GetCostAndUsage<br><span style="color:#ff9900;">成本（含订阅）</span></div>
+      <div style="flex:1; background:#37475a; color:#e8edf2; border-radius:8px; padding:10px 6px; text-align:center; font-size:11.5px;">Service Quotas<br>GetServiceQuota<br><span style="color:#ff9900;">配额 / 账户健康</span></div>
+    </div>
+  </div>
+
+  <p>几个设计取舍：</p>
+  <ul style="padding-left:22px; margin:10px 0;">
+    <li>Lambda 代码超过 CFN <code style="background:#f0f1f3; padding:1px 6px; border-radius:4px;">ZipFile</code> 内联上限（4096 字节），因此从 S3 引用 zip，模板仍是「控制台可直接部署」；</li>
+    <li>Lambda Function URL 在部分组织被 SCP 禁止（403），改用 API Gateway HTTP API 规避；</li>
+    <li>Lambda 执行角色只有写日志权限，所有查询用<strong>调用方上传的密钥</strong>执行。</li>
+  </ul>
+
+  <div style="background:#f7f9fb; border-left:4px solid #0366d6; padding:14px 16px; margin:20px 0; color:#5a6572; font-size:13.5px; line-height:1.7;">
+    <span style="display:inline-block; background:#0366d6; color:#fff; font-size:11px; padding:1px 8px; border-radius:10px; margin-right:8px;">EN</span>The entire stack is <strong>4 CloudFormation resources</strong>. The frontend is inlined into the Lambda code at build time, so page and API are same-origin — zero client configuration. The Lambda's execution role can only write logs; every query runs with the caller-supplied credentials.
+  </div>
+
+  <!-- ===== 03 面板长什么样 ===== -->
+  <h2 style="font-size:18px; border-left:5px solid #ff9900; padding-left:12px; margin:36px 0 14px;">03 面板长什么样 · What You Get</h2>
+  <p>四个汇总卡片 + 四张图表 + 两张明细表。示意如下（数据为示例）：</p>
+
+  <!-- 面板示意图 -->
+  <div style="border:1px solid #e3e7ec; border-radius:12px; padding:16px; margin:16px 0; background:#fbfcfd;">
+    <div style="display:flex; gap:8px; margin-bottom:14px;">
+      <div style="flex:1; background:#eef6ff; border-radius:8px; padding:10px 8px; text-align:center;"><div style="font-size:11px; color:#5a6572;">总成本</div><div style="font-size:15px; font-weight:600; color:#1a73e8;">$2,847.62</div></div>
+      <div style="flex:1; background:#eefaf3; border-radius:8px; padding:10px 8px; text-align:center;"><div style="font-size:11px; color:#5a6572;">总 Token</div><div style="font-size:15px; font-weight:600; color:#188552;">8.6 亿</div></div>
+      <div style="flex:1; background:#fff6ee; border-radius:8px; padding:10px 8px; text-align:center;"><div style="font-size:11px; color:#5a6572;">总调用</div><div style="font-size:15px; font-weight:600; color:#c05000;">27.4 万</div></div>
+      <div style="flex:1; background:#f5efff; border-radius:8px; padding:10px 8px; text-align:center;"><div style="font-size:11px; color:#5a6572;">活跃模型</div><div style="font-size:15px; font-weight:600; color:#7649c8;">4</div></div>
+    </div>
+    <div style="font-size:12px; color:#5a6572; margin-bottom:6px;">各模型调用次数 · Invocations by model（每个模型自动配色）</div>
+    <div style="display:flex; align-items:flex-end; gap:14px; height:110px; padding:0 6px; border-bottom:2px solid #dfe3e8;">
+      <div style="flex:1; text-align:center;"><div style="background:#36a2eb; height:96px; border-radius:4px 4px 0 0;"></div></div>
+      <div style="flex:1; text-align:center;"><div style="background:#ff6384; height:70px; border-radius:4px 4px 0 0;"></div></div>
+      <div style="flex:1; text-align:center;"><div style="background:#2dd4bf; height:28px; border-radius:4px 4px 0 0;"></div></div>
+      <div style="flex:1; text-align:center;"><div style="background:#ff9f40; height:8px; border-radius:4px 4px 0 0;"></div></div>
+    </div>
+    <div style="display:flex; gap:14px; padding:6px 6px 0;">
+      <div style="flex:1; text-align:center; font-size:10.5px; color:#5a6572;">claude-opus-4-8</div>
+      <div style="flex:1; text-align:center; font-size:10.5px; color:#5a6572;">claude-opus-5</div>
+      <div style="flex:1; text-align:center; font-size:10.5px; color:#5a6572;">claude-opus-4-7</div>
+      <div style="flex:1; text-align:center; font-size:10.5px; color:#5a6572;">其他</div>
+    </div>
+    <div style="font-size:11px; color:#9aa4af; text-align:center; margin-top:10px;">（示意数据 · illustrative data）</div>
+  </div>
+
+  <p>功能清单：</p>
+  <ul style="padding-left:22px; margin:10px 0;">
+    <li><strong>Token 用量</strong>：各模型输入 / 输出 Token 堆叠柱状图；</li>
+    <li><strong>调用次数 & 平均延迟</strong>：每个模型自动分配独立配色，一眼区分；</li>
+    <li><strong>成本占比</strong>：按账户的环形图，悬停可看服务分项（含 Marketplace 订阅）；</li>
+    <li><strong>服务配额表</strong>：按账户 × 区域显示 L-D06938E7 当前值；</li>
+    <li><strong>时间范围</strong>：最近 1/6/24 小时、本月、上月、自定义绝对区间；</li>
+    <li><strong>多账户管理</strong>：密钥可存本机浏览器或仅会话内有效，随时删除。</li>
+  </ul>
+
+  <div style="background:#f7f9fb; border-left:4px solid #0366d6; padding:14px 16px; margin:20px 0; color:#5a6572; font-size:13.5px; line-height:1.7;">
+    <span style="display:inline-block; background:#0366d6; color:#fff; font-size:11px; padding:1px 8px; border-radius:10px; margin-right:8px;">EN</span>Stacked token charts per model, invocation &amp; latency bars with per-model colors, a per-account cost doughnut (hover for service breakdown incl. Marketplace), a quota table, flexible time ranges (relative or absolute), and local-only credential management.
+  </div>
+
+  <!-- ===== 04 隐藏技巧 ===== -->
+  <h2 style="font-size:18px; border-left:5px solid #ff9900; padding-left:12px; margin:36px 0 14px;">04 隐藏技巧：配额查询 = 账户健康探针</h2>
+  <p>面板里的服务配额表（默认查 Bedrock 的 L-D06938E7）其实还藏着一个实用玩法——<strong>间接判断账户是否被封 / 受限</strong>：</p>
+
+  <div style="border:1px solid #ffe0b2; background:#fffaf0; border-radius:10px; padding:16px 18px; margin:16px 0;">
+    <div style="font-size:14px; margin-bottom:8px;">✅ <strong>能正常返回数值</strong> → 密钥有效、账户状态正常、API 可调用</div>
+    <div style="font-size:14px; margin-bottom:8px;">❌ <strong>AccessDenied / 账户级错误</strong> → 可能密钥失效、账户欠费停用（被封）、或被组织策略限制</div>
+    <div style="font-size:13px; color:#8a6d3b;">💡 悬停报错单元格可看具体错误信息，帮助进一步定位。</div>
+  </div>
+
+  <p>对同时管理多个客户账户的团队来说，这张表就是一张现成的「账户健康监控」面板——每天扫一眼，谁家账户出问题立刻知道，而不用等客户来问「为什么我们的模型调不通了」。</p>
+
+  <div style="background:#f7f9fb; border-left:4px solid #0366d6; padding:14px 16px; margin:20px 0; color:#5a6572; font-size:13.5px; line-height:1.7;">
+    <span style="display:inline-block; background:#0366d6; color:#fff; font-size:11px; padding:1px 8px; border-radius:10px; margin-right:8px;">EN</span>Hidden trick: the quota table doubles as an <strong>account-health probe</strong>. A successful quota read means the credential works and the account is in good standing; <code style="background:#e8ebef; padding:0 5px; border-radius:3px;">AccessDenied</code> or account-level errors often mean a dead key, a suspended (billed-blocked) account, or SCP restrictions. For teams managing many customer accounts, one glance a day beats finding out from an angry customer.
+  </div>
+
+  <!-- ===== 05 踩坑实录 ===== -->
+  <h2 style="font-size:18px; border-left:5px solid #ff9900; padding-left:12px; margin:36px 0 14px;">05 踩坑实录 · Seven Pitfalls We Hit</h2>
+  <p>这套小面板的迭代过程几乎是一部「AWS 冷知识合集」，每一条都是真实踩过的坑：</p>
+
+  <div style="border:1px solid #e3e7ec; border-radius:10px; overflow:hidden; margin:16px 0;">
+    <div style="background:#232f3e; color:#fff; padding:10px 14px; font-size:13px;">坑 &amp; 解法 · Pitfalls &amp; Fixes</div>
+    <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+      <tr style="background:#f5f7f9;">
+        <td style="padding:8px 12px; border-bottom:1px solid #e8ebef; font-weight:600; width:46%;">CFN <code style="background:#eceef2; padding:0 4px; border-radius:3px;">ZipFile</code> 内联上限 4096 字节</td>
+        <td style="padding:8px 12px; border-bottom:1px solid #e8ebef;">Lambda 代码改从 S3 zip 引用</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px; border-bottom:1px solid #e8ebef;">Function URL 明明配了 <code style="background:#eceef2; padding:0 4px; border-radius:3px;">AuthType=NONE</code> 仍 403</td>
+        <td style="padding:8px 12px; border-bottom:1px solid #e8ebef;">组织 SCP 禁止公开 Function URL → 换 API Gateway HTTP API</td>
+      </tr>
+      <tr style="background:#f5f7f9;">
+        <td style="padding:8px 12px; border-bottom:1px solid #e8ebef;">模板报循环依赖（Api ↔ Permission）</td>
+        <td style="padding:8px 12px; border-bottom:1px solid #e8ebef;">删掉显式 <code style="background:#eceef2; padding:0 4px; border-radius:3px;">DependsOn</code>，SourceArn 引用已隐含依赖</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px; border-bottom:1px solid #e8ebef;">Marketplace 版 Claude 费用按 <code style="background:#eceef2; padding:0 4px; border-radius:3px;">SERVICE="Amazon Bedrock"</code> 过滤为 $0</td>
+        <td style="padding:8px 12px; border-bottom:1px solid #e8ebef;">改 GroupBy=SERVICE，匹配名称含 "bedrock" 的所有服务</td>
+      </tr>
+      <tr style="background:#f5f7f9;">
+        <td style="padding:8px 12px; border-bottom:1px solid #e8ebef;">CE 小时粒度要求完整 datetime 格式，且是 PAYER 端 opt-in</td>
+        <td style="padding:8px 12px; border-bottom:1px solid #e8ebef;">失败自动降级 DAILY</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px; border-bottom:1px solid #e8ebef;">CloudWatch 里调用次数指标查 <code style="background:#eceef2; padding:0 4px; border-radius:3px;">InvocationCount</code> 为空</td>
+        <td style="padding:8px 12px; border-bottom:1px solid #e8ebef;">实际指标名是 <code style="background:#eceef2; padding:0 4px; border-radius:3px;">Invocations</code>（复数，没有 Count）</td>
+      </tr>
+      <tr style="background:#f5f7f9;">
+        <td style="padding:8px 12px;"><code style="background:#eceef2; padding:0 4px; border-radius:3px;">SEARCH()</code> 返回的 Label 不含 <code style="background:#eceef2; padding:0 4px; border-radius:3px;">ModelId=</code> 前缀，解析全失败</td>
+        <td style="padding:8px 12px;">单维度时 Label 是「模型ID 指标名」，按空格取首段</td>
+      </tr>
+    </table>
+  </div>
+
+  <div style="background:#f7f9fb; border-left:4px solid #0366d6; padding:14px 16px; margin:20px 0; color:#5a6572; font-size:13.5px; line-height:1.7;">
+    <span style="display:inline-block; background:#0366d6; color:#fff; font-size:11px; padding:1px 8px; border-radius:10px; margin-right:8px;">EN</span>Building this dashboard turned into a greatest-hits collection of AWS trivia: the 4 KB CFN ZipFile cap, SCPs silently blocking public Function URLs, CFN circular dependencies, Marketplace Claude charges hiding under their own service names, hourly CE granularity being a payer-account opt-in, the metric being <code style="background:#e8ebef; padding:0 5px; border-radius:3px;">Invocations</code> and not <code style="background:#e8ebef; padding:0 5px; border-radius:3px;">InvocationCount</code>, and <code style="background:#e8ebef; padding:0 5px; border-radius:3px;">SEARCH()</code> labels not containing <code style="background:#e8ebef; padding:0 5px; border-radius:3px;">ModelId=</code>. All documented in the README.
+  </div>
+
+  <!-- ===== 06 安全设计 ===== -->
+  <h2 style="font-size:18px; border-left:5px solid #ff9900; padding-left:12px; margin:36px 0 14px;">06 安全设计 · Security Model</h2>
+  <p>「自助上传密钥」听起来吓人，但这套方案的安全边界其实很清晰：</p>
+  <ul style="padding-left:22px; margin:10px 0;">
+    <li>密钥只存在<strong>浏览器 localStorage</strong>（可选，默认仅会话内有效），服务端从不落盘；</li>
+    <li>上传密钥只需 <strong>4 个只读权限</strong>：<code style="background:#f0f1f3; padding:1px 6px; border-radius:4px;">cloudwatch:GetMetricData</code>、<code style="background:#f0f1f3; padding:1px 6px; border-radius:4px;">ListMetrics</code>、<code style="background:#f0f1f3; padding:1px 6px; border-radius:4px;">ce:GetCostAndUsage</code>、<code style="background:#f0f1f3; padding:1px 6px; border-radius:4px;">servicequotas:GetServiceQuota</code>；</li>
+    <li>Lambda 执行角色零数据面权限，删栈即烟消云散；</li>
+    <li>生产建议：专用 IAM 用户 + STS 临时密钥。</li>
+  </ul>
+
+  <div style="background:#f7f9fb; border-left:4px solid #0366d6; padding:14px 16px; margin:20px 0; color:#5a6572; font-size:13.5px; line-height:1.7;">
+    <span style="display:inline-block; background:#0366d6; color:#fff; font-size:11px; padding:1px 8px; border-radius:10px; margin-right:8px;">EN</span>Credentials live only in the browser (session-only by default); the server never persists them. Uploaded keys need just <strong>four read-only actions</strong>. The Lambda's own role has zero dataplane permissions. Recommended hardening: dedicated IAM users + STS temporary credentials.
+  </div>
+
+  <!-- ===== 07 部署 ===== -->
+  <h2 style="font-size:18px; border-left:5px solid #ff9900; padding-left:12px; margin:36px 0 14px;">07 三步部署 · Deploy in Three Steps</h2>
+  <pre style="background:#232f3e; color:#e8edf2; border-radius:8px; padding:14px 16px; font-size:12px; overflow-x:auto; line-height:1.8;"><code># 1. 构建包（前端内联进 Lambda）
+python deploy/build-template.py
+
+# 2. 上传到任意同区域 S3 桶
+aws s3 cp deploy/lambda.zip s3://&lt;你的桶&gt;/lambda.zip
+
+# 3. 部署（或控制台直接上传 cfn/template.yaml）
+aws cloudformation deploy \
+  --template-file cfn/template.yaml \
+  --stack-name bedrock-dashboard \
+  --capabilities CAPABILITY_IAM \
+  --parameter-overrides \
+    LambdaCodeBucket=&lt;你的桶&gt; LambdaCodeKey=lambda.zip</code></pre>
+  <p>栈创建完成后，输出里的 <code style="background:#f0f1f3; padding:1px 6px; border-radius:4px;">DashboardUrl</code> 打开即用。删除也只要一条 <code style="background:#f0f1f3; padding:1px 6px; border-radius:4px;">delete-stack</code>——因为服务端不存任何状态。</p>
+
+  <div style="background:#f7f9fb; border-left:4px solid #0366d6; padding:14px 16px; margin:20px 0; color:#5a6572; font-size:13.5px; line-height:1.7;">
+    <span style="display:inline-block; background:#0366d6; color:#fff; font-size:11px; padding:1px 8px; border-radius:10px; margin-right:8px;">EN</span>Build, upload the zip to any S3 bucket in-region, deploy the CloudFormation template (console or CLI). Open <code style="background:#e8ebef; padding:0 5px; border-radius:3px;">DashboardUrl</code> from the stack outputs and you are done. Tear down with a single <code style="background:#e8ebef; padding:0 5px; border-radius:3px;">delete-stack</code> — nothing persists server-side.
+  </div>
+
+  <!-- ===== 结尾 ===== -->
+  <h2 style="font-size:18px; border-left:5px solid #ff9900; padding-left:12px; margin:36px 0 14px;">写在最后 · Final Thoughts</h2>
+  <p>Serverless 的乐趣就在于此：一个 Lambda、一次 HTTP 请求、零常驻成本，就能把多云账户的 Bedrock 可观测性做成「打开网页」这么简单。项目已开源，欢迎 Star / PR：</p>
+
+  <div style="background:#f0f7ff; border:1px solid #cfe6ff; border-radius:10px; padding:16px 18px; margin:16px 0; text-align:center;">
+    <div style="font-size:14px; margin-bottom:4px;">🐙 <strong>GitHub（开源）</strong></div>
+    <div style="font-size:13px; color:#0366d6; word-break:break-all;">github.com/temmplar47/bedrock-dashboard</div>
+  </div>
+
+  <p style="color:#8a94a6; font-size:13px;">如果你也在管一堆 Bedrock 账户，欢迎试试，并把你的踩坑故事讲给我们听。</p>
+
+  <hr style="border:none; border-top:1px solid #e8ebef; margin:28px 0;">
+  <div style="color:#9aa4af; font-size:12px; text-align:center; line-height:1.7;">
+    English summary · The full English version is interleaved in each section above.<br>
+    中英双语排版：每节中文正文后附英文摘要框（EN 标签）。<br>
+    © 2026 · Bedrock Dashboard · MIT License
+  </div>
+
+</div>
+</body>
+</html>
