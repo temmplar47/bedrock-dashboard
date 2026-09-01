@@ -108,6 +108,7 @@
     <li><strong>调用次数 & 平均延迟</strong>：每个模型自动分配独立配色，一眼区分；</li>
     <li><strong>成本占比</strong>：按账户的环形图，悬停可看服务分项（含 Marketplace 订阅）；</li>
     <li><strong>服务配额表</strong>：按账户 × 区域显示 L-D06938E7 当前值；</li>
+    <li><strong>账户健康探测表</strong>：STS 自动读取 Account ID（连账户名都不用手填），CloudShell 只读探测账户是否被风控；</li>
     <li><strong>时间范围</strong>：最近 1/6/24 小时、本月、上月、自定义绝对区间；</li>
     <li><strong>多账户管理</strong>：密钥可存本机浏览器或仅会话内有效，随时删除。</li>
   </ul>
@@ -117,7 +118,7 @@
   </div>
 
   <!-- ===== 04 隐藏技巧 ===== -->
-  <h2 style="font-size:18px; border-left:5px solid #ff9900; padding-left:12px; margin:36px 0 14px;">04 隐藏技巧：配额查询 = 账户健康探针</h2>
+  <h2 style="font-size:18px; border-left:5px solid #ff9900; padding-left:12px; margin:36px 0 14px;">04 隐藏技巧：账户健康探针</h2>
   <p>面板里的服务配额表（默认查 Bedrock 的 L-D06938E7）其实还藏着一个实用玩法——<strong>间接判断账户是否被封 / 受限</strong>：</p>
 
   <div style="border:1px solid #ffe0b2; background:#fffaf0; border-radius:10px; padding:16px 18px; margin:16px 0;">
@@ -126,10 +127,16 @@
     <div style="font-size:13px; color:#8a6d3b;">💡 悬停报错单元格可看具体错误信息，帮助进一步定位。</div>
   </div>
 
-  <p>对同时管理多个客户账户的团队来说，这张表就是一张现成的「账户健康监控」面板——每天扫一眼，谁家账户出问题立刻知道，而不用等客户来问「为什么我们的模型调不通了」。</p>
+  <p>更进一步，「账户健康探测」表还引入了两个信号：</p>
+  <ul style="padding-left:22px; margin:10px 0;">
+    <li><strong>STS 身份</strong>：后端自动调 <code style="background:#f0f1f3; padding:1px 6px; border-radius:4px;">GetCallerIdentity</code> 读取真实 Account ID——所以<strong>添加账户连名字都不用填</strong>，账户名自动就是账号 ID；</li>
+    <li><strong>CloudShell 探测</strong>（只读）：当账户被 AWS 风控时，控制台打开 CloudShell 会报「<strong>无法创建环境。正在验证您的账户</strong>」，而此时 STS 和成本查询<strong>仍然正常</strong>——也就是说，只有 CloudShell 的只读 API 能暴露这个状态。面板把它做成了一列：✓ 可用 / ⚠️ 账户验证中（疑似被风控）。</li>
+  </ul>
+
+  <p>对同时管理多个客户账户的团队来说，每天扫一眼这张表，谁家账户出问题立刻知道，而不用等客户来问「为什么我们的模型调不通了」。</p>
 
   <div style="background:#f7f9fb; border-left:4px solid #0366d6; padding:14px 16px; margin:20px 0; color:#5a6572; font-size:13.5px; line-height:1.7;">
-    <span style="display:inline-block; background:#0366d6; color:#fff; font-size:11px; padding:1px 8px; border-radius:10px; margin-right:8px;">EN</span>Hidden trick: the quota table doubles as an <strong>account-health probe</strong>. A successful quota read means the credential works and the account is in good standing; <code style="background:#e8ebef; padding:0 5px; border-radius:3px;">AccessDenied</code> or account-level errors often mean a dead key, a suspended (billed-blocked) account, or SCP restrictions. For teams managing many customer accounts, one glance a day beats finding out from an angry customer.
+    <span style="display:inline-block; background:#0366d6; color:#fff; font-size:11px; padding:1px 8px; border-radius:10px; margin-right:8px;">EN</span>Hidden trick: the quota table doubles as an <strong>account-health probe</strong> — a successful quota read means the credential works and the account is in good standing; <code style="background:#e8ebef; padding:0 5px; border-radius:3px;">AccessDenied</code> or account-level errors often mean a dead key, a suspended account, or SCP restrictions. The dashboard adds two more signals: <strong>STS identity</strong> (auto-reads the Account ID — you don't even type an account name when adding one) and a <strong>read-only CloudShell probe</strong>. When AWS puts an account under risk-control verification, the CloudShell console shows "We couldn't create the environment. We're verifying your account" — while STS and Cost Explorer still work fine. Only the CloudShell API reveals that state, so the dashboard surfaces it as a per-account status column.
   </div>
 
   <!-- ===== 05 踩坑实录 ===== -->

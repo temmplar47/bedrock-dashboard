@@ -65,6 +65,12 @@
     </section>
 
     <section class="card">
+      <h3>账户健康探测（STS 身份 / CloudShell）</h3>
+      <div id="healthTable"></div>
+      <p class="hint">CloudShell 报「正在验证您的账户」类错误 = 账户被 AWS 风控/验证中（此时 STS 与成本查询仍正常）；「无权限」则只是密钥未授予 cloudshell:ListEnvironments，不影响健康判断。</p>
+    </section>
+
+    <section class="card">
       <h3>服务配额（<span id="quotaCodeLabel">L-D06938E7</span>）</h3>
       <div id="quotaTable"></div>
     </section>
@@ -79,7 +85,6 @@
   <div id="accountModal" class="modal hidden">
     <div class="modal-box">
       <h3 id="accountModalTitle">添加账户</h3>
-      <label>账户名称（自定义）<input id="accLabel" type="text" placeholder="例如：生产账号 / 测试账号"></label>
       <label>Access Key ID<input id="accKeyId" type="text" autocomplete="off"></label>
       <label>Secret Access Key<input id="accSecret" type="password" autocomplete="off"></label>
       <label>Session Token（可选，临时密钥填写）<input id="accToken" type="password" autocomplete="off"></label>

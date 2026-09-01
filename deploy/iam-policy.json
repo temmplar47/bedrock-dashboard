@@ -21,6 +21,15 @@
       "Effect": "Allow",
       "Action": "servicequotas:GetServiceQuota",
       "Resource": "*"
+    },
+    {
+      "Sid": "BedrockDashboardIdentityRead",
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity",
+        "cloudshell:ListEnvironments"
+      ],
+      "Resource": "*"
     }
   ]
 }

@@ -2,10 +2,13 @@
 
 一个**轻量、可查询多账户**的 Bedrock CloudWatch 自动控制面板：
 
-- 🔑 **自助上传访问密钥**：前端表单录入各账户的 Access Key / Secret /（可选）Session Token 与区域，可选择保存到本机浏览器（localStorage）或仅本次会话使用，随时可单个删除或一键清除。
+- 🔑 **自助上传访问密钥（免填账户名）**：前端表单录入各账户的 Access Key / Secret /（可选）Session Token 与区域，**账户名称自动读取**——后端用 STS `GetCallerIdentity` 拿到真实 Account ID 作为账户名（无需额外权限，只有显式 Deny 才会拦）。可选择保存到本机浏览器（localStorage）或仅本次会话使用，随时可单个删除或一键清除。
 - 📊 **可自定义时间范围**：顶栏下拉切换**相对**预设（最近 1/6/24 小时、本月、上月）或**自定义绝对时间**（datetime 选择器）；CloudWatch/成本查询均按所选范围执行，成本粒度自动适配（短窗口 HOURLY、长窗口 DAILY）。核心图表 **Token Counts by Model（各模型输入/输出 Token）**，另含调用次数、平均延迟、各账户成本占比。
 - 💰 **总成本**：通过 Cost Explorer `GetCostAndUsage` 统计本窗口内 Amazon Bedrock 费用。
-- 📏 **服务配额**：通过 Service Quotas `GetServiceQuota` 查询配额码 **L-D06938E7**（Bedrock，按账户/区域显示当前值）。顺带一个隐藏用法——**可间接判断账户是否被封/受限**：配额查询能正常返回数值，说明密钥有效且账户状态正常；若报 `AccessDenied`、账户级错误或持续异常，往往意味着密钥失效、账户被停用（如欠费封停）或被组织策略限制。对管理多个客户账户的团队来说，配额表就是一张现成的「账户健康探针」面板，悬停报错单元格可查看具体原因。
+- 📏 **服务配额 + 账户健康探测**：通过 Service Quotas `GetServiceQuota` 查询配额码 **L-D06938E7**（Bedrock，按账户/区域显示当前值）。这张表还是一张现成的「账户健康探针」面板——**可间接判断账户是否被封/受限**：
+  - **配额能正常返回数值** → 密钥有效、账户状态正常；
+  - **`AccessDenied` / 账户级错误** → 往往意味着密钥失效、账户被停用（如欠费封停）或被组织策略限制；悬停报错单元格可看具体原因。
+  - **「账户健康探测」表（新增）**：STS 身份列显示 Account ID / 身份 ARN（凭证有效即正常）；**CloudShell 探测列**调用 CloudShell `ListEnvironments`（只读，us-east-1）。当账户被 AWS 风控/验证时，控制台打开 CloudShell 会报「无法创建环境。正在验证您的账户」，此时 **STS 和成本查询仍正常，唯独 CloudShell API 报账户级错误**——这正是区分「账户被风控」与「单纯密钥问题」的判别信号。若显示「密钥无 CloudShell 权限」，只是该密钥未授予 `cloudshell:ListEnvironments`，不影响健康判断。
 - 🕒 **本地时区**：自动识别浏览器时区并显示数据窗口的本地时间。
 - 🔄 **15 分钟自动刷新**：内置定时器，也支持手动刷新与账户/模型筛选。
 - 🚀 **部署形态（推荐：Lambda + API Gateway HTTP API）**：**1 个 Lambda + 1 个 HTTP API（$default 阶段）**，没有 S3 静态站、没有 API Key，免费额度内**约等于 $0/月**。Lambda Function URL 在部分组织被 SCP 禁止，本方案使用 API Gateway 端点规避。
@@ -118,7 +121,9 @@ aws lambda update-function-code --function-name bedrock-dashboard `
         "cloudwatch:GetMetricData",
         "cloudwatch:ListMetrics",
         "ce:GetCostAndUsage",
-        "servicequotas:GetServiceQuota"
+        "servicequotas:GetServiceQuota",
+        "sts:GetCallerIdentity",
+        "cloudshell:ListEnvironments"
       ],
       "Resource": "*"
     }
@@ -131,7 +136,7 @@ aws lambda update-function-code --function-name bedrock-dashboard `
 ## 使用
 
 1. 打开部署输出的 Dashboard 地址（无需设置 API 地址——同源自动生效）。
-2. 点「+ 添加账户」→ 录入名称、密钥、区域（多区域用逗号分隔，如 `us-east-1,us-west-2`）。
+2. 点「+ 添加账户」→ 录入密钥、区域（多区域用逗号分隔，如 `us-east-1,us-west-2`）。**无需填写账户名称**——首次查询后自动用 STS 读出的 Account ID 命名。
    - 勾选「保存到本机浏览器」：密钥存入 localStorage，下次打开自动加载。
    - 不勾选：仅本次会话有效（账户标签显示"临时"），关闭页面即从内存清除。
    - 单个账户可随时「×」删除；「清除已存密钥」按钮一键删除本机保存的全部密钥。

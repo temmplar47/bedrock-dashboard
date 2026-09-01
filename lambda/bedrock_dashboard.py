@@ -15,6 +15,8 @@ Required permissions for the uploaded keys (see deploy/iam-policy.json):
   - cloudwatch:GetMetricData, cloudwatch:ListMetrics
   - ce:GetCostAndUsage
   - servicequotas:GetServiceQuota
+  - sts:GetCallerIdentity (works even without explicit grant; only Deny blocks)
+  - cloudshell:ListEnvironments (optional — for the account-health probe)
 """
 
 import json
@@ -270,6 +272,34 @@ def _fetch_cost(session, start_dt, end_dt):
         ]
 
 
+def _fetch_caller(session):
+    """STS GetCallerIdentity — validates the credential and reads the real
+    account id / user. GetCallerIdentity needs no explicit IAM permission
+    (only an explicit Deny blocks it), so it works for minimal keys."""
+    try:
+        c = session.client('sts').get_caller_identity()
+        return {'accountId': c.get('Account'), 'arn': c.get('Arn'), 'userId': c.get('UserId')}
+    except Exception as e:  # noqa: BLE001
+        return {'error': str(e)}
+
+
+def _fetch_cloudshell(session):
+    """CloudShell health probe (read-only, us-east-1 only).
+
+    When AWS puts an account under verification / risk control, the CloudShell
+    console shows "无法创建环境。正在验证您的账户" and CloudShell API calls fail
+    with an account-level error even though STS / Cost Explorer still work —
+    the discriminating account-health signal. We call ListEnvironments only
+    (pure read: never creates or deletes environments).
+    """
+    try:
+        cs = session.client('cloudshell', region_name='us-east-1')
+        envs = cs.list_environments().get('environments', [])
+        return {'status': 'ok', 'environments': len(envs)}
+    except Exception as e:  # noqa: BLE001
+        return {'status': 'error', 'message': str(e)}
+
+
 def _fetch_quotas(session, regions, service_code, quota_codes):
     """Query Service Quotas (e.g. L-D06938E7) for the caller's account, per region."""
     out = []
@@ -326,6 +356,8 @@ def lambda_handler(event, context):
 
     models, cw_errors = _fetch_cloudwatch(session, regions, start_dt, end_dt, model_filter)
     cost, cost_errors = _fetch_cost(session, start_dt, end_dt)
+    caller = _fetch_caller(session)
+    cloudshell = _fetch_cloudshell(session)
     quota_service = body.get('quotaServiceCode') or QUOTA_SERVICE_CODE
     quota_codes = body.get('quotaCodes') or QUOTA_CODES
     quotas = _fetch_quotas(session, regions, quota_service, quota_codes)
@@ -337,6 +369,8 @@ def lambda_handler(event, context):
         'window': {'start': start_dt.isoformat(), 'end': end_dt.isoformat()},
         'models': models,
         'cost': cost,
+        'caller': caller,
+        'health': {'cloudshell': cloudshell},
         'quotas': quotas,
         'errors': errors,
     }

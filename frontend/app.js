@@ -174,7 +174,6 @@ function openAccountModal(id) {
   editingId = id || null;
   const acc = id ? state.accounts.find(a => a.id === id) : null;
   document.getElementById('accountModalTitle').textContent = id ? '编辑账户' : '添加账户';
-  document.getElementById('accLabel').value = acc ? acc.label : '';
   document.getElementById('accKeyId').value = acc ? acc.accessKeyId : '';
   document.getElementById('accSecret').value = acc ? acc.secretAccessKey : '';
   document.getElementById('accToken').value = acc ? acc.sessionToken : '';
@@ -184,21 +183,24 @@ function openAccountModal(id) {
 }
 function closeAccountModal() { document.getElementById('accountModal').classList.add('hidden'); }
 function saveAccount() {
-  const label = document.getElementById('accLabel').value.trim();
+  // 账户名称无需手填：先用密钥尾号占位，首次查询后由 STS GetCallerIdentity
+  // 读出的真实 Account ID 自动替换。
   const accessKeyId = document.getElementById('accKeyId').value.trim();
   const secretAccessKey = document.getElementById('accSecret').value.trim();
   const sessionToken = document.getElementById('accToken').value.trim();
   const regions = document.getElementById('accRegions').value.split(',').map(s => s.trim()).filter(Boolean);
   const persist = document.getElementById('accPersist').checked;
-  if (!label || !accessKeyId || !secretAccessKey) { toast('请填写名称、Access Key 和 Secret', 'error'); return; }
+  if (!accessKeyId || !secretAccessKey) { toast('请填写 Access Key 和 Secret', 'error'); return; }
   if (!regions.length) regions.push('us-east-1');
+  const label = 'Account ' + maskKey(accessKeyId);
   if (editingId) {
     Object.assign(state.accounts.find(x => x.id === editingId), { label, accessKeyId, secretAccessKey, sessionToken, regions, transient: !persist });
   } else {
     state.accounts.push({ id: 'a_' + Date.now(), label, accessKeyId, secretAccessKey, sessionToken, regions, transient: !persist });
   }
   persistAccounts();
-  closeAccountModal(); renderAccounts(); toast(persist ? '已保存到本机浏览器' : '已添加（仅本次会话，关闭页面即清除）', 'success');
+  closeAccountModal(); renderAccounts(); toast(persist ? '已保存到本机浏览器（账户名将自动读取）' : '已添加（仅本次会话，关闭页面即清除）', 'success');
+  refresh();
 }
 
 /* ============ 设置弹窗 ============ */
@@ -257,6 +259,16 @@ async function refresh() {
   if (!state.accounts.length) { toast('请先添加至少一个账户', 'error'); document.getElementById('refreshInfo').textContent = ''; return; }
   const results = await Promise.all(state.accounts.map(queryAccount));
   lastResults = results;
+  // 账户名自动读取：用 STS GetCallerIdentity 返回的 Account ID 替换占位名
+  let renamed = false;
+  results.forEach(r => {
+    const id = r.data && r.data.caller && r.data.caller.accountId;
+    if (id) {
+      r.account.accountId = id;
+      if (r.account.label !== id) { r.account.label = id; renamed = true; }
+    }
+  });
+  if (renamed) { persistAccounts(); renderAccounts(); }
   renderDashboard();
   lastUpdateText = '最近更新：' + new Date().toLocaleTimeString();
   scheduleNext();
@@ -295,6 +307,7 @@ function renderDashboard() {
   const agg = aggregate();
   renderSummary(agg);
   renderCharts(agg);
+  renderHealth();
   renderQuotas();
   renderDetail();
   const w = lastResults.map(r => r.data && r.data.window).find(Boolean);
@@ -352,6 +365,44 @@ function renderCharts(agg) {
   drawBar('invocationChart', labels, [{ label: '调用次数', data: models.map(m => m.invocations), backgroundColor: paletteColors(models.length) }]);
   drawBar('latencyChart', labels, [{ label: '平均延迟(ms)', data: models.map(m => round(m.avgLatency)), backgroundColor: paletteColors(models.length) }]);
   drawDoughnut('costChart', agg.costByAccount.map(c => c.label), agg.costByAccount.map(c => round(c.amount)));
+}
+
+/* ============ 账户健康探测 ============ */
+function renderHealth() {
+  const fid = state.settings.selectedAccount;
+  const results = fid === 'all' ? lastResults : lastResults.filter(r => r.account.id === fid);
+  let html = '<table class="detail"><thead><tr><th>账户</th><th>Account ID（STS）</th><th>身份 ARN</th><th>CloudShell 探测</th></tr></thead><tbody>';
+  let rows = 0;
+  results.forEach(r => {
+    if (r.error || !r.data || !r.data.success) {
+      html += `<tr><td>${escapeHtml(r.account.label)}</td><td colspan="3"><span class="err" title="${escapeHtml(r.error || (r.data && r.data.error) || '')}">查询失败</span></td></tr>`;
+      rows++;
+      return;
+    }
+    const c = r.data.caller || {};
+    const cs = (r.data.health && r.data.health.cloudshell) || {};
+    const idCell = c.accountId
+      ? escapeHtml(c.accountId)
+      : `<span class="err" title="${escapeHtml(c.error || '')}">读取失败</span>`;
+    let csCell;
+    if (cs.status === 'ok') {
+      csCell = `<span style="color:#2dd4bf;">✓ 可用（${cs.environments} 个环境）</span>`;
+    } else {
+      const msg = cs.message || '未知错误';
+      if (/verif|验证/i.test(msg)) {
+        csCell = `<span class="err" title="${escapeHtml(msg)}">⚠️ 账户验证中（疑似被风控）</span>`;
+      } else if (/not authorized|AccessDenied|权限/i.test(msg)) {
+        csCell = `<span style="color:#93a3bd;cursor:help;" title="${escapeHtml(msg)}">🔒 密钥无 CloudShell 权限（不影响健康判断）</span>`;
+      } else {
+        csCell = `<span class="err" title="${escapeHtml(msg)}">✗ ${escapeHtml(msg.slice(0, 60))}</span>`;
+      }
+    }
+    html += `<tr><td>${escapeHtml(r.account.label)}</td><td>${idCell}</td><td style="color:var(--muted);font-size:12px;">${escapeHtml(c.arn || '-')}</td><td>${csCell}</td></tr>`;
+    rows++;
+  });
+  if (!rows) html += '<tr><td colspan="4">暂无数据（添加账户并刷新后显示）</td></tr>';
+  html += '</tbody></table>';
+  document.getElementById('healthTable').innerHTML = html;
 }
 
 /* ============ 服务配额 ============ */
