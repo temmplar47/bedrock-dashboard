@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Bedrock multi-account dashboard - Lambda + API Gateway HTTP API (minimal, ~$0/month).
+  No S3 static site, no API key. One Lambda serves both the page (GET) and the
+  query API (POST), fronted by an API Gateway HTTP API $default stage
+  (Lambda Function URL is blocked by some org SCPs, API Gateway is not).
+  Lambda code is loaded from an existing S3 bucket via parameters
+  (AWS ZipFile inline is capped at 4096 bytes).
+
+Parameters:
+  LambdaCodeBucket:
+    Type: String
+    Description: Existing S3 bucket (in this region) that holds the packaged Lambda zip.
+  LambdaCodeKey:
+    Type: String
+    Default: lambda.zip
+    Description: S3 object key of the packaged Lambda zip.
+
+Resources:
+  DashboardRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  DashboardFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: bedrock-dashboard
+      Runtime: python3.12
+      Handler: bedrock_dashboard.lambda_handler
+      Role: !GetAtt DashboardRole.Arn
+      Timeout: 60
+      MemorySize: 256
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Ref LambdaCodeKey
+
+  # Allow API Gateway HTTP API to invoke the Lambda
+  DashboardApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DashboardFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${DashboardApi}/*
+
+  # HTTP API with quick-create: automatically creates the $default stage and
+  # an ANY / route forwarding to the Lambda. Endpoint:
+  #   https://<api-id>.execute-api.<region>.amazonaws.com/
+  DashboardApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: bedrock-dashboard
+      ProtocolType: HTTP
+      Target: !GetAtt DashboardFunction.Arn
+
+Outputs:
+  DashboardUrl:
+    Description: Open this URL - it is both the dashboard page and the API (same origin, no config needed).
+    Value: !GetAtt DashboardApi.ApiEndpoint

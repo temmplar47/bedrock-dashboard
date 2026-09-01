@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bedrock 多账户云监控面板</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Amazon Bedrock 多账户监控面板</h1>
+      <span class="sub">时间范围可选 · 15 分钟自动刷新 · 本地时区</span>
+    </div>
+    <div class="topbar-right">
+      <select id="timeRangeSelect" class="select" title="数据时间范围（相对 / 自定义）">
+        <option value="1h">最近 1 小时</option>
+        <option value="6h">最近 6 小时</option>
+        <option value="24h">最近 24 小时</option>
+        <option value="thisMonth">本月</option>
+        <option value="lastMonth">上月</option>
+        <option value="custom">自定义时间范围…</option>
+      </select>
+      <span id="customRange" class="custom-range hidden">
+        <input id="rangeStart" type="datetime-local" title="开始时间"> ~
+        <input id="rangeEnd" type="datetime-local" title="结束时间">
+        <button id="applyRangeBtn" class="btn">应用</button>
+      </span>
+      <span id="tzLabel" class="tz"></span>
+      <span id="refreshInfo" class="refresh-info"></span>
+      <button id="refreshBtn" class="btn primary">手动刷新</button>
+      <button id="settingsBtn" class="btn">设置</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="accounts-bar">
+      <div class="accounts-list" id="accountsList"></div>
+      <button id="addAccountBtn" class="btn">+ 添加账户</button>
+      <button id="clearCredsBtn" class="btn danger-btn" title="删除本机浏览器已保存的全部密钥">清除已存密钥</button>
+      <span id="windowLabel" class="window-label"></span>
+      <select id="accountFilter" class="select" title="按账户筛选"></select>
+    </section>
+
+    <section class="cards" id="summaryCards"></section>
+
+    <section class="charts">
+      <div class="card chart-card">
+        <h3>各模型 Token 用量（输入 / 输出）</h3>
+        <div class="canvas-wrap"><canvas id="tokenChart"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <h3>各模型调用次数</h3>
+        <div class="canvas-wrap"><canvas id="invocationChart"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <h3>各模型平均延迟 (ms)</h3>
+        <div class="canvas-wrap"><canvas id="latencyChart"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <h3>各账户成本占比（本窗口）</h3>
+        <div class="canvas-wrap"><canvas id="costChart"></canvas></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>服务配额（<span id="quotaCodeLabel">L-D06938E7</span>）</h3>
+      <div id="quotaTable"></div>
+    </section>
+
+    <section class="card">
+      <h3>明细（按账户 / 模型）</h3>
+      <div id="detailTable"></div>
+    </section>
+  </main>
+
+  <!-- 账户弹窗 -->
+  <div id="accountModal" class="modal hidden">
+    <div class="modal-box">
+      <h3 id="accountModalTitle">添加账户</h3>
+      <label>账户名称（自定义）<input id="accLabel" type="text" placeholder="例如：生产账号 / 测试账号"></label>
+      <label>Access Key ID<input id="accKeyId" type="text" autocomplete="off"></label>
+      <label>Secret Access Key<input id="accSecret" type="password" autocomplete="off"></label>
+      <label>Session Token（可选，临时密钥填写）<input id="accToken" type="password" autocomplete="off"></label>
+      <label>区域（逗号分隔，如 us-east-1,us-west-2）<input id="accRegions" type="text" value="us-east-1"></label>
+      <label class="checkbox"><input id="accPersist" type="checkbox" checked> 保存到本机浏览器（localStorage）；不勾选则仅本次会话有效，关闭页面即清除</label>
+      <div class="modal-actions">
+        <button id="accCancel" class="btn">取消</button>
+        <button id="accSave" class="btn primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 设置弹窗 -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-box">
+      <h3>设置</h3>
+      <label>API 地址（同源部署可留空，自动使用当前站点）<input id="setApiUrl" type="text" placeholder="https://xxxx.execute-api.region.amazonaws.com（留空=同源）"></label>
+      <label>API Key（仅 API Gateway REST 部署需要，HTTP API 部署留空）<input id="setApiKey" type="password" autocomplete="off"></label>
+      <label>模型过滤（可选，逗号分隔；留空=全部）</label>
+      <input id="setModelFilter" type="text" placeholder="anthropic.claude-3-5...,amazon.titan-...">
+      <label class="checkbox"><input id="setAutoRefresh" type="checkbox" checked> 每 15 分钟自动刷新</label>
+      <div class="modal-actions">
+        <button id="setCancel" class="btn">取消</button>
+        <button id="setSave" class="btn primary">保存</button>
+      </div>
+      <p class="hint">密钥仅保存在本机浏览器（localStorage），通过 HTTPS 发送给后端 Lambda 临时使用，不会存储到服务器。建议使用带 Session Token 的<strong>临时密钥</strong>。</p>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

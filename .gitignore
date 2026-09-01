@@ -1,0 +1,17 @@
+# Build artifacts (rebuild with: python deploy/build-template.py)
+deploy/lambda.zip
+lambda/bundled.py
+
+# Generated at deploy time by deploy/deploy.ps1
+deploy/api-spec.json
+deploy/s3-policy.json
+
+# Local runtime
+__pycache__/
+*.pyc
+
+# Project-local agent workspace
+.workbuddy/
+
+# Generated at deploy time (may contain API key)
+frontend/config.json

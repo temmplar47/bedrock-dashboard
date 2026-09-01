@@ -1,0 +1,57 @@
+{
+  "swagger": "2.0",
+  "info": { "title": "bedrock-dashboard-api", "version": "1.0" },
+  "schemes": ["https"],
+  "paths": {
+    "/query": {
+      "post": {
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "parameters": [
+          { "name": "body", "in": "body", "required": false, "schema": { "type": "object" } }
+        ],
+        "responses": {
+          "200": { "description": "OK" },
+          "400": { "description": "Client error" }
+        },
+        "x-amazon-apigateway-api-key-required": true,
+        "x-amazon-apigateway-integration": {
+          "type": "aws_proxy",
+          "httpMethod": "POST",
+          "uri": "arn:aws:apigateway:__REGION__:lambda:path/2015-03-31/functions/__FNARN__/invocations",
+          "passthroughBehavior": "when_no_match"
+        }
+      },
+      "options": {
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "Access-Control-Allow-Origin": { "type": "string" },
+              "Access-Control-Allow-Headers": { "type": "string" },
+              "Access-Control-Allow-Methods": { "type": "string" }
+            }
+          }
+        },
+        "x-amazon-apigateway-integration": {
+          "type": "mock",
+          "requestTemplates": { "application/json": "{\"statusCode\":200}" },
+          "contentHandling": "CONVERT_TO_TEXT",
+          "responses": {
+            "default": {
+              "statusCode": "200",
+              "responseParameters": {
+                "method.response.header.Access-Control-Allow-Origin": "'*'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,x-api-key'",
+                "method.response.header.Access-Control-Allow-Methods": "'POST,OPTIONS'"
+              },
+              "responseTemplates": { "application/json": "" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
