@@ -41,26 +41,9 @@
   <h2 style="font-size:18px; border-left:5px solid #ff9900; padding-left:12px; margin:36px 0 14px;">02 极简架构 · The Minimal Architecture</h2>
   <p>整套系统只有 <strong>4 个 CloudFormation 资源</strong>：1 个 IAM Role、1 个 Lambda、1 个 Lambda Permission、1 个 API Gateway HTTP API。前端页面在构建时直接内联进 Lambda 代码，页面与查询 API <strong>同源</strong>，打开即用、零配置。</p>
 
-  <!-- 架构图（纯 div，兼容公众号编辑器） -->
-  <div style="background:#232f3e; border-radius:12px; padding:22px 18px; margin:18px 0;">
-    <div style="text-align:center; color:#8fa3b8; font-size:12px; letter-spacing:1px; margin-bottom:14px;">ARCHITECTURE · 架构一图流</div>
-    <div style="background:#ffffff; border-radius:8px; padding:12px 14px; text-align:center; font-size:13.5px;">
-      🖥️ 浏览器（密钥仅存于本机）<br><span style="color:#8a94a6; font-size:12px;">Browser — credentials live locally only</span>
-    </div>
-    <div style="text-align:center; color:#ff9900; font-size:15px; margin:4px 0;">⬇ GET 页面 / POST 查询</div>
-    <div style="background:#ffffff; border-radius:8px; padding:12px 14px; text-align:center; font-size:13.5px;">
-      API Gateway HTTP API（$default）<br><span style="color:#8a94a6; font-size:12px;">No API key, no stage config</span>
-    </div>
-    <div style="text-align:center; color:#ff9900; font-size:15px; margin:4px 0;">⬇</div>
-    <div style="background:#ffffff; border-radius:8px; padding:12px 14px; text-align:center; font-size:13.5px;">
-      ⚡ Lambda × 1（页面 + 查询代理）<br><span style="color:#8a94a6; font-size:12px;">Serves the page AND proxies queries</span>
-    </div>
-    <div style="text-align:center; color:#ff9900; font-size:15px; margin:4px 0;">⬇ 用请求体里的调用方密钥</div>
-    <div style="display:flex; gap:8px; margin-top:2px;">
-      <div style="flex:1; background:#37475a; color:#e8edf2; border-radius:8px; padding:10px 6px; text-align:center; font-size:11.5px;">CloudWatch<br>GetMetricData<br><span style="color:#ff9900;">Token / 次数 / 延迟</span></div>
-      <div style="flex:1; background:#37475a; color:#e8edf2; border-radius:8px; padding:10px 6px; text-align:center; font-size:11.5px;">Cost Explorer<br>GetCostAndUsage<br><span style="color:#ff9900;">成本（含订阅）</span></div>
-      <div style="flex:1; background:#37475a; color:#e8edf2; border-radius:8px; padding:10px 6px; text-align:center; font-size:11.5px;">Service Quotas<br>GetServiceQuota<br><span style="color:#ff9900;">配额 / 账户健康</span></div>
-    </div>
+  <!-- 架构图：PNG 插图（发布时上传到公众号素材库，文件见 docs/img/architecture.png） -->
+  <div style="margin:18px 0; text-align:center;">
+    <img src="img/architecture.png" alt="架构一图流：浏览器 → API Gateway HTTP API → Lambda → CloudWatch / Cost Explorer / Service Quotas" style="max-width:100%; border-radius:12px;">
   </div>
 
   <p>几个设计取舍：</p>
@@ -78,28 +61,9 @@
   <h2 style="font-size:18px; border-left:5px solid #ff9900; padding-left:12px; margin:36px 0 14px;">03 面板长什么样 · What You Get</h2>
   <p>四个汇总卡片 + 四张图表 + 两张明细表。示意如下（数据为示例）：</p>
 
-  <!-- 面板示意图 -->
-  <div style="border:1px solid #e3e7ec; border-radius:12px; padding:16px; margin:16px 0; background:#fbfcfd;">
-    <div style="display:flex; gap:8px; margin-bottom:14px;">
-      <div style="flex:1; background:#eef6ff; border-radius:8px; padding:10px 8px; text-align:center;"><div style="font-size:11px; color:#5a6572;">总成本</div><div style="font-size:15px; font-weight:600; color:#1a73e8;">$2,847.62</div></div>
-      <div style="flex:1; background:#eefaf3; border-radius:8px; padding:10px 8px; text-align:center;"><div style="font-size:11px; color:#5a6572;">总 Token</div><div style="font-size:15px; font-weight:600; color:#188552;">8.6 亿</div></div>
-      <div style="flex:1; background:#fff6ee; border-radius:8px; padding:10px 8px; text-align:center;"><div style="font-size:11px; color:#5a6572;">总调用</div><div style="font-size:15px; font-weight:600; color:#c05000;">27.4 万</div></div>
-      <div style="flex:1; background:#f5efff; border-radius:8px; padding:10px 8px; text-align:center;"><div style="font-size:11px; color:#5a6572;">活跃模型</div><div style="font-size:15px; font-weight:600; color:#7649c8;">4</div></div>
-    </div>
-    <div style="font-size:12px; color:#5a6572; margin-bottom:6px;">各模型调用次数 · Invocations by model（每个模型自动配色）</div>
-    <div style="display:flex; align-items:flex-end; gap:14px; height:110px; padding:0 6px; border-bottom:2px solid #dfe3e8;">
-      <div style="flex:1; text-align:center;"><div style="background:#36a2eb; height:96px; border-radius:4px 4px 0 0;"></div></div>
-      <div style="flex:1; text-align:center;"><div style="background:#ff6384; height:70px; border-radius:4px 4px 0 0;"></div></div>
-      <div style="flex:1; text-align:center;"><div style="background:#2dd4bf; height:28px; border-radius:4px 4px 0 0;"></div></div>
-      <div style="flex:1; text-align:center;"><div style="background:#ff9f40; height:8px; border-radius:4px 4px 0 0;"></div></div>
-    </div>
-    <div style="display:flex; gap:14px; padding:6px 6px 0;">
-      <div style="flex:1; text-align:center; font-size:10.5px; color:#5a6572;">claude-opus-4-8</div>
-      <div style="flex:1; text-align:center; font-size:10.5px; color:#5a6572;">claude-opus-5</div>
-      <div style="flex:1; text-align:center; font-size:10.5px; color:#5a6572;">claude-opus-4-7</div>
-      <div style="flex:1; text-align:center; font-size:10.5px; color:#5a6572;">其他</div>
-    </div>
-    <div style="font-size:11px; color:#9aa4af; text-align:center; margin-top:10px;">（示意数据 · illustrative data）</div>
+  <!-- 面板示意图：PNG 插图（发布时上传到公众号素材库，文件见 docs/img/panel-demo.png） -->
+  <div style="margin:16px 0; text-align:center;">
+    <img src="img/panel-demo.png" alt="面板示意：四张汇总卡片 + 各模型调用次数彩色柱状图" style="max-width:100%; border-radius:12px; border:1px solid #e3e7ec;">
   </div>
 
   <p>功能清单：</p>
@@ -231,6 +195,7 @@ aws cloudformation deploy \
   <div style="color:#9aa4af; font-size:12px; text-align:center; line-height:1.7;">
     English summary · The full English version is interleaved in each section above.<br>
     中英双语排版：每节中文正文后附英文摘要框（EN 标签）。<br>
+    发布提示：02 / 03 两节插图是 PNG 文件（docs/img/architecture.png、docs/img/panel-demo.png），粘贴正文后在对应位置单独上传图片即可。<br>
     © 2026 · Bedrock Dashboard · MIT License
   </div>
 
